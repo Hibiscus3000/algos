@@ -90,18 +90,19 @@ void count_next_uv(tuv_storage *uv, long long q)
 
 tlde_solution lde(long long a, long long b)
 {
+    if (llabs(a) < llabs(b))
+    {
+        return lde(b, a);
+    }
     tlde_solution lde_s;
     lde_s.a = a;
     lde_s.b = b;
 
     tuv_storage uv;
-    uv.u = 1;
-    uv.v = 0;
-
-    if (0 != b)
-    {
-        set_next_uv(&uv, 0, 1);
-    }
+    uv.u_prev = 1;
+    uv.v_prev = 0;
+    uv.u = 0;
+    uv.v = -1;
 
     int i;
     for (i = 0; 0 != b; ++i)
@@ -113,6 +114,11 @@ tlde_solution lde(long long a, long long b)
 
         a = b;
         b = mod;
+    }
+
+    if (1 == i)
+    {
+        uv.v_prev *= llsign(a);
     }
 
     lde_s.gcd = llabs(a);
