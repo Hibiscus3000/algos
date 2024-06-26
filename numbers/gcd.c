@@ -34,11 +34,11 @@ long long gcd(long long x, long long y)
 {
     if (0 == x && y != 0)
     {
-        return y;
+        return llabs(y);
     }
     if (y == 0)
     {
-        return x;
+        return llabs(x);
     }
     int result = eu_mod(x, y);
     return gcd(y, result);
