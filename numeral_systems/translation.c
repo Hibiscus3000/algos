@@ -1,21 +1,48 @@
 
 #include <assert.h>
-#include <stddef.h>
+#include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #define MIN_BASE 2
-#define MAX_BASE 16
+#define MAX_BASE 36
 
-int convert_base(char *b)
+#define DOT_NOT_FOUND -1
+#define MAX_DIGITS_AFTER_DOT 100
+#define FRACTION_ERROR 1e-13
+
+struct number
 {
-    int base = strtol(b, NULL, 10);
-    if (MAX_BASE < base || base < MIN_BASE)
-    {
-        fprintf(stderr, "Invalid base: %d. Base must in [%d, %d]", base, MIN_BASE, MAX_BASE);
-        abort();
-    }
-    return base;
+    long long integer;
+    double fraction;
+};
+
+typedef struct number tnumber;
+
+int llsign(long long value)
+{
+    return value < 0 ? -1 : 1;
+}
+
+long long llabs(long long val)
+{
+    return llsign(val) * val;
+}
+
+char is_equal(double d1, double d2)
+{
+    return -FRACTION_ERROR < (d1 - d2) && (d1 - d2) < FRACTION_ERROR;
+}
+
+char is_zero(double d)
+{
+    return is_equal(d, 0);
+}
+
+char is_greater(double d1, double d2)
+{
+    return FRACTION_ERROR < (d1 - d2);
 }
 
 int translate_char(char c, int base)
@@ -25,11 +52,11 @@ int translate_char(char c, int base)
     {
         result = c - '0';
     }
-    if ('A' <= c && c <= 'F')
+    else
     {
         result = 10 + c - 'A';
     }
-    if (result >= base)
+    if (result < 0 || result >= base)
     {
         fprintf(stderr, "Invalid digit %c in base %d number system\n", c, base);
         abort();
@@ -40,60 +67,140 @@ int translate_char(char c, int base)
 char translate_digit(int digit, int base)
 {
     assert(0 <= digit && digit < base);
-    if (0 <= digit && digit <= 9)
+    if (digit <= 9)
     {
         return '0' + digit;
     }
-    if (10 <= digit && digit < 16)
+    if (10 <= digit)
     {
         return 'A' + digit - 10;
     }
     abort();
 }
 
-long long to10(char *num, int base)
+long long str_to_ll(char *str, int base)
 {
-    long long translated_number = 0;
+    long long value = strtoll(str, NULL, base);
+    if (errno)
+    {
+        perror("strtoll");
+        abort();
+    }
+    return value;
+}
+
+int convert_base(char *str)
+{
+    int base = str_to_ll(str, 10);
+    if (MAX_BASE < base || base < MIN_BASE)
+    {
+        fprintf(stderr, "Invalid base: %d. Base must in [%d, %d]\n", base, MIN_BASE, MAX_BASE);
+        abort();
+    }
+    return base;
+}
+
+double convert_frac(char *str, int base)
+{
+    double frac = 0;
+    long long divider = base;
     for (int i = 0;; ++i)
     {
-        char current_char = num[i];
-        if (!current_char)
+        if (0 == str[i])
         {
-            return translated_number;
+            break;
         }
-        translated_number = base * translated_number + translate_char(current_char, base);
+        frac += ((double)translate_char(str[i], base) / divider);
+        divider *= base;
     }
-    return translated_number;
+    assert(is_greater(1, frac));
+    return frac;
 }
 
-long long get_length(long long number10, int base)
+int find_dot(char *str)
 {
-    int length = 0;
-    while (number10 || number10 % base)
+    int dot_position = DOT_NOT_FOUND;
+    for (int i = 0;; ++i)
     {
-        number10 /= base;
-        ++length;
+        if ('.' == str[i])
+        {
+            dot_position = i;
+        }
+        if (0 == str[i])
+        {
+            if (dot_position == i - 1)
+            {
+                return DOT_NOT_FOUND;
+            }
+            return dot_position;
+        }
     }
-    return length;
 }
 
-char *to_base(long long number10, int base)
+tnumber convert_to_number(char *str, int base)
 {
-    int length = get_length(number10, base);
-    char *number_base = (char *)(malloc(sizeof(char) * length));
+    tnumber num;
+    num.integer = str_to_ll(str, base);
 
-    for (int i = 0; i < length; ++i)
+    int dot_position = find_dot(str);
+    if (DOT_NOT_FOUND != dot_position)
     {
-        number_base[length - i - 1] = translate_digit(number10 % base, base);
-        number10 /= base;
+        num.fraction = convert_frac(str + dot_position + 1, base);
     }
+    else
+    {
+        num.fraction = 0;
+    }
+    return num;
+}
 
-    return number_base;
+void print_int_part_in_base(long long int_part, int base)
+{
+    if (int_part / base)
+    {
+        print_int_part_in_base(int_part / base, base);
+    }
+    printf("%c", translate_digit(int_part % base, base));
+}
+
+void print_fraction_in_base(double fraction, int base)
+{
+    assert(is_greater(1, fraction));
+    for (int i = 0; i < MAX_DIGITS_AFTER_DOT; ++i)
+    {
+        double power = pow(base, -i - 1);
+        int digit_value = fraction / power;
+        if (digit_value == base)
+        {
+            --digit_value; // in case of floating point errors
+        }
+        fraction -= digit_value * power;
+        printf("%c", translate_digit(digit_value, base));
+        if (is_zero(fraction))
+        {
+            break;
+        }
+    }
+}
+
+void print_number_in_base(tnumber *num, int base)
+{
+    if (num->integer < 0)
+    {
+        printf("-");
+    }
+    print_int_part_in_base(llabs(num->integer), base);
+    if (!is_zero(num->fraction))
+    {
+        printf(".");
+        print_fraction_in_base(num->fraction, base);
+    }
+    printf("\n");
 }
 
 int main(int argc, char *argv[])
 {
-    if (4 != argc)
+    if (argc != 4)
     {
         fprintf(stderr, "Usage: translation <number> <base from> <base to>\nResult: <number> in <base to>\n");
         abort();
@@ -101,12 +208,7 @@ int main(int argc, char *argv[])
 
     int base_from = convert_base(argv[2]);
     int base_to = convert_base(argv[3]);
-    char *number_base_from = argv[1];
-    long long number10 = to10(number_base_from, base_from);
-    char *number_base_to = to_base(number10, base_to);
-
-    printf("%s(%d) = %s(%d)\n", number_base_from, base_from, number_base_to, base_to);
-    free(number_base_to);
-
+    tnumber num = convert_to_number(argv[1], base_from);
+    print_number_in_base(&num, base_to);
     return 0;
 }
